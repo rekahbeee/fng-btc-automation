@@ -1,146 +1,113 @@
-{
- "cells": [
-  {
-   "cell_type": "code",
-   "execution_count": null,
-   "id": "b23e23ba-9b9b-4985-a241-52fa18d34fad",
-   "metadata": {},
-   "outputs": [],
-   "source": [
-    "import requests\n",
-    "import pandas as pd\n",
-    "import os\n",
-    "import time\n",
-    "\n",
-    "# Fetch the latest Fear & Greed Index data\n",
-    "def fetch_fng_data():\n",
-    "    for attempt in range(3):  # Retry 3 times\n",
-    "        try:\n",
-    "            r = requests.get('https://api.alternative.me/fng/?limit=1', timeout=10)\n",
-    "            if r.status_code == 200:\n",
-    "                df = pd.DataFrame(r.json()['data'])\n",
-    "                if 'timestamp' not in df.columns:\n",
-    "                    print(\"Error: 'timestamp' column not found in FNG data\")\n",
-    "                    return None\n",
-    "                df['value'] = df['value'].astype(int)\n",
-    "                df['timestamp'] = df['timestamp'].astype(int)\n",
-    "                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')\n",
-    "                df.set_index('timestamp', inplace=True)\n",
-    "                return df\n",
-    "            print(f\"Attempt {attempt + 1} failed, status code: {r.status_code}, response: {r.text}\")\n",
-    "        except requests.RequestException as e:\n",
-    "            print(f\"Attempt {attempt + 1} failed due to exception: {e}\")\n",
-    "        print(f\"Waiting 10 seconds before next attempt...\")\n",
-    "        time.sleep(10)\n",
-    "    print(\"Error: Failed to fetch FNG data after 3 attempts\")\n",
-    "    return None\n",
-    "\n",
-    "# Fetch the latest BTC price data using CoinGecko API\n",
-    "def fetch_btc_data():\n",
-    "    for attempt in range(3):  # Retry 3 times\n",
-    "        try:\n",
-    "            r = requests.get('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1&interval=daily', timeout=10)\n",
-    "            if r.status_code == 200:\n",
-    "                btc_df = pd.DataFrame(r.json()['prices'], columns=['timestamp', 'BTCUSD'])\n",
-    "                btc_df['timestamp'] = pd.to_datetime(btc_df['timestamp'], unit='ms')\n",
-    "                btc_df.set_index('timestamp', inplace=True)\n",
-    "                return btc_df.iloc[0:1]  # Return only the latest day\n",
-    "            print(f\"Attempt {attempt + 1} failed, status code: {r.status_code}, response: {r.text}\")\n",
-    "        except requests.RequestException as e:\n",
-    "            print(f\"Attempt {attempt + 1} failed due to exception: {e}\")\n",
-    "        print(f\"Waiting 10 seconds before next attempt...\")\n",
-    "        time.sleep(10)\n",
-    "    print(\"Error: Failed to fetch BTC data after 3 attempts\")\n",
-    "    return None\n",
-    "\n",
-    "# Merge data and upload to Dune\n",
-    "def update_dune_data():\n",
-    "    # Fetch the latest data\n",
-    "    fng_df = fetch_fng_data()\n",
-    "    if fng_df is None:\n",
-    "        return\n",
-    "    btc_df = fetch_btc_data()\n",
-    "    if btc_df is None:\n",
-    "        return\n",
-    "\n",
-    "    # Merge data\n",
-    "    d = pd.merge(fng_df, btc_df, how='inner', left_index=True, right_index=True)\n",
-    "    if d.empty:\n",
-    "        print(\"Error: No data after merge\")\n",
-    "        return\n",
-    "\n",
-    "    # Read existing CSV to check for duplicates\n",
-    "    output_file = 'fear_greed_btc_data.csv'\n",
-    "    existing_data = []\n",
-    "    if os.path.exists(output_file):\n",
-    "        try:\n",
-    "            existing_df = pd.read_csv(output_file)\n",
-    "            existing_data = existing_df['timestamp'].tolist()\n",
-    "        except Exception as e:\n",
-    "            print(f\"Error reading existing CSV: {e}\")\n",
-    "            return\n",
-    "\n",
-    "    latest_date = d.index[0].strftime('%Y-%m-%d')\n",
-    "    if latest_date in existing_data:\n",
-    "        print(f\"Data already exists, skipping upload: {latest_date}\")\n",
-    "        return\n",
-    "\n",
-    "    # Append to CSV\n",
-    "    d = d.reset_index()\n",
-    "    try:\n",
-    "        d.to_csv(output_file, mode='a', header=not os.path.exists(output_file), index=False)\n",
-    "        print(f\"Data appended to {output_file}\")\n",
-    "    except Exception as e:\n",
-    "        print(f\"Error writing to CSV: {e}\")\n",
-    "        return\n",
-    "\n",
-    "    # Upload to Dune\n",
-    "    api_key = os.environ.get('DUNE_API_KEY')\n",
-    "    if not api_key:\n",
-    "        print(\"Error: DUNE_API_KEY environment variable not found\")\n",
-    "        return\n",
-    "    DUNE_API_URL = 'https://api.dune.com/api/v1/table/upload/csv'\n",
-    "    headers = {'X-Dune-API-Key': api_key}\n",
-    "    try:\n",
-    "        csv_data = d.to_csv(index=False)\n",
-    "        payload = {\n",
-    "            'table_name': 'fng_btc_trends',\n",
-    "            'description': 'Daily FNG Index and BTC Price Trends (updated daily)',\n",
-    "            'is_private': False,\n",
-    "            'data': csv_data\n",
-    "        }\n",
-    "        response = requests.post(DUNE_API_URL, headers=headers, json=payload, timeout=10)\n",
-    "        if response.status_code == 200:\n",
-    "            print(f\"Data uploaded to Dune successfully! Time: {pd.Timestamp.now()}\")\n",
-    "        else:\n",
-    "            print(f\"Upload error: Status {response.status_code}, Response: {response.text}\")\n",
-    "    except requests.RequestException as e:\n",
-    "        print(f\"Upload failed due to exception: {e}\")\n",
-    "\n",
-    "if __name__ == \"__main__\":\n",
-    "    update_dune_data()"
-   ]
-  }
- ],
- "metadata": {
-  "kernelspec": {
-   "display_name": "Python 3 (ipykernel)",
-   "language": "python",
-   "name": "python3"
-  },
-  "language_info": {
-   "codemirror_mode": {
-    "name": "ipython",
-    "version": 3
-   },
-   "file_extension": ".py",
-   "mimetype": "text/x-python",
-   "name": "python",
-   "nbconvert_exporter": "python",
-   "pygments_lexer": "ipython3",
-   "version": "3.12.4"
-  }
- },
- "nbformat": 4,
- "nbformat_minor": 5
-}
+import requests
+import pandas as pd
+import os
+import time
+
+# Fetch the latest Fear & Greed Index data
+def fetch_fng_data():
+    for attempt in range(3):  # Retry 3 times
+        try:
+            r = requests.get('https://api.alternative.me/fng/?limit=1', timeout=10)
+            if r.status_code == 200:
+                df = pd.DataFrame(r.json()['data'])
+                if 'timestamp' not in df.columns:
+                    print("Error: 'timestamp' column not found in FNG data")
+                    return None
+                df['value'] = df['value'].astype(int)
+                df['timestamp'] = df['timestamp'].astype(int)
+                df['timestamp'] = pd.to_datetime(df['timestamp'], unit='s')
+                df.set_index('timestamp', inplace=True)
+                return df
+            print(f"Attempt {attempt + 1} failed, status code: {r.status_code}, response: {r.text}")
+        except requests.RequestException as e:
+            print(f"Attempt {attempt + 1} failed due to exception: {e}")
+        print(f"Waiting 10 seconds before next attempt...")
+        time.sleep(10)
+    print("Error: Failed to fetch FNG data after 3 attempts")
+    return None
+
+# Fetch the latest BTC price data using CoinGecko API
+def fetch_btc_data():
+    for attempt in range(3):  # Retry 3 times
+        try:
+            r = requests.get('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1&interval=daily', timeout=10)
+            if r.status_code == 200:
+                btc_df = pd.DataFrame(r.json()['prices'], columns=['timestamp', 'BTCUSD'])
+                btc_df['timestamp'] = pd.to_datetime(btc_df['timestamp'], unit='ms')
+                btc_df.set_index('timestamp', inplace=True)
+                return btc_df.iloc[0:1]  # Return only the latest day
+            print(f"Attempt {attempt + 1} failed, status code: {r.status_code}, response: {r.text}")
+        except requests.RequestException as e:
+            print(f"Attempt {attempt + 1} failed due to exception: {e}")
+        print(f"Waiting 10 seconds before next attempt...")
+        time.sleep(10)
+    print("Error: Failed to fetch BTC data after 3 attempts")
+    return None
+
+# Merge data and upload to Dune
+def update_dune_data():
+    # Fetch the latest data
+    fng_df = fetch_fng_data()
+    if fng_df is None:
+        return
+    btc_df = fetch_btc_data()
+    if btc_df is None:
+        return
+
+    # Merge data
+    d = pd.merge(fng_df, btc_df, how='inner', left_index=True, right_index=True)
+    if d.empty:
+        print("Error: No data after merge")
+        return
+
+    # Read existing CSV to check for duplicates
+    output_file = 'fear_greed_btc_data.csv'
+    existing_data = []
+    if os.path.exists(output_file):
+        try:
+            existing_df = pd.read_csv(output_file)
+            existing_data = existing_df['timestamp'].tolist()
+        except Exception as e:
+            print(f"Error reading existing CSV: {e}")
+            return
+
+    latest_date = d.index[0].strftime('%Y-%m-%d')
+    if latest_date in existing_data:
+        print(f"Data already exists, skipping upload: {latest_date}")
+        return
+
+    # Append to CSV
+    d = d.reset_index()
+    try:
+        d.to_csv(output_file, mode='a', header=not os.path.exists(output_file), index=False)
+        print(f"Data appended to {output_file}")
+    except Exception as e:
+        print(f"Error writing to CSV: {e}")
+        return
+
+    # Upload to Dune
+    api_key = os.environ.get('DUNE_API_KEY')
+    if not api_key:
+        print("Error: DUNE_API_KEY environment variable not found")
+        return
+    DUNE_API_URL = 'https://api.dune.com/api/v1/table/upload/csv'
+    headers = {'X-Dune-API-Key': api_key}
+    try:
+        csv_data = d.to_csv(index=False)
+        payload = {
+            'table_name': 'fng_btc_trends',
+            'description': 'Daily FNG Index and BTC Price Trends (updated daily)',
+            'is_private': False,
+            'data': csv_data
+        }
+        response = requests.post(DUNE_API_URL, headers=headers, json=payload, timeout=10)
+        if response.status_code == 200:
+            print(f"Data uploaded to Dune successfully! Time: {pd.Timestamp.now()}")
+        else:
+            print(f"Upload error: Status {response.status_code}, Response: {response.text}")
+    except requests.RequestException as e:
+        print(f"Upload failed due to exception: {e}")
+
+if __name__ == "__main__":
+    update_dune_data()
+
