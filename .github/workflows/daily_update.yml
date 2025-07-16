@@ -1,0 +1,19 @@
+name: Daily FNG and BTC Update
+on:
+  schedule:
+    - cron: '0 1 * * *'  # Daily at UTC 1:00 (Beijing time 9:00)
+  workflow_dispatch:  # Allow manual trigger
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+      - name: Install dependencies
+        run: pip install requests pandas
+      - name: Run script
+        run: python update_fng_btc.py
+        env:
+          DUNE_API_KEY: ${{ secrets.DUNE_API_KEY }}
