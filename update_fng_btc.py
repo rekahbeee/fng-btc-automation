@@ -90,7 +90,7 @@ def update_dune_data():
     if not api_key:
         print("Error: DUNE_API_KEY environment variable not found")
         return
-    DUNE_API_URL = 'https://api.dune.com/api/v1/table/upload/csv'
+    DUNE_API_URL = 'https://api.dune.com/api/v1/table/insert'
     headers = {'X-Dune-API-Key': api_key}
     try:
         csv_data = d.to_csv(index=False)
