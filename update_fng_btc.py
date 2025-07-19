@@ -2,6 +2,7 @@ import requests
 import pandas as pd
 import os
 import time
+import json
 
 # Fetch the latest Fear & Greed Index data
 def fetch_fng_data():
@@ -114,7 +115,7 @@ def import_historical_data():
         
         headers = {
             'X-Dune-API-Key': api_key,
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/x-ndjson'
         }
         
         # Upload historical data in batches (max 1000 records per batch)
@@ -128,10 +129,12 @@ def import_historical_data():
                     batch_df['timestamp'] = pd.to_datetime(batch_df['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
             
             data_records = batch_df.to_dict('records')
-            payload = {"data": data_records}
+            
+            # Convert to NDJSON format (one JSON object per line)
+            ndjson_data = '\n'.join([json.dumps(record) for record in data_records])
             
             try:
-                response = requests.post(DUNE_API_URL, headers=headers, json=payload, timeout=30)
+                response = requests.post(DUNE_API_URL, headers=headers, data=ndjson_data, timeout=30)
                 if response.status_code == 200:
                     print(f"Batch {i//batch_size + 1} uploaded successfully ({len(batch_df)} records)")
                 else:
@@ -208,16 +211,18 @@ def update_dune_data():
     
     headers = {
         'X-Dune-API-Key': api_key,
-        'Content-Type': 'application/json'
+        'Content-Type': 'application/x-ndjson'
     }
     
-    # Convert data to JSON format
+    # Convert data to newline-delimited JSON format
     d_reset['timestamp'] = d_reset['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
     data_records = d_reset.to_dict('records')
-    payload = {"data": data_records}
+    
+    # Convert to NDJSON format (one JSON object per line)
+    ndjson_data = '\n'.join([json.dumps(record) for record in data_records])
     
     try:
-        response = requests.post(DUNE_API_URL, headers=headers, json=payload, timeout=10)
+        response = requests.post(DUNE_API_URL, headers=headers, data=ndjson_data, timeout=10)
         if response.status_code == 200:
             print(f"Data uploaded to Dune API table successfully! Time: {pd.Timestamp.now()}")
         else:
