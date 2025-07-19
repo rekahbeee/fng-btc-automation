@@ -77,7 +77,7 @@ def create_dune_table():
     
     try:
         response = requests.post(create_url, headers=headers, json=payload, timeout=10)
-        if response.status_code == 200:
+        if response.status_code in [200, 201]:  # Accept both 200 (OK) and 201 (Created)
             print(f"Table created successfully: {namespace}.{table_name}")
             return True
         elif response.status_code == 400 and "already exists" in response.text.lower():
