@@ -128,7 +128,12 @@ def import_historical_data():
                 if pd.api.types.is_datetime64_any_dtype(batch_df['timestamp']):
                     batch_df['timestamp'] = pd.to_datetime(batch_df['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
             
-            data_records = batch_df.to_dict('records')
+            # Only keep columns that match our schema
+            schema_columns = ['timestamp', 'value', 'value_classification', 'btcusd']
+            available_columns = [col for col in schema_columns if col in batch_df.columns]
+            batch_df_filtered = batch_df[available_columns]
+            
+            data_records = batch_df_filtered.to_dict('records')
             
             # Convert to NDJSON format (one JSON object per line)
             ndjson_data = '\n'.join([json.dumps(record) for record in data_records])
@@ -216,7 +221,12 @@ def update_dune_data():
     
     # Convert data to newline-delimited JSON format
     d_reset['timestamp'] = d_reset['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    data_records = d_reset.to_dict('records')
+    
+    # Only keep columns that match our schema
+    schema_columns = ['timestamp', 'value', 'value_classification', 'btcusd']
+    d_filtered = d_reset[schema_columns]
+    
+    data_records = d_filtered.to_dict('records')
     
     # Convert to NDJSON format (one JSON object per line)
     ndjson_data = '\n'.join([json.dumps(record) for record in data_records])
