@@ -2,7 +2,6 @@ import requests
 import pandas as pd
 import os
 import time
-import json
 
 # Fetch the latest Fear & Greed Index data
 def fetch_fng_data():
@@ -33,7 +32,7 @@ def fetch_btc_data():
         try:
             r = requests.get('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1&interval=daily', timeout=10)
             if r.status_code == 200:
-                btc_df = pd.DataFrame(r.json()['prices'], columns=['timestamp', 'btcusd'])
+                btc_df = pd.DataFrame(r.json()['prices'], columns=['timestamp', 'BTCUSD'])
                 btc_df['timestamp'] = pd.to_datetime(btc_df['timestamp'], unit='ms')
                 btc_df.set_index('timestamp', inplace=True)
                 return btc_df.iloc[0:1]  # Return only the latest day
@@ -44,123 +43,6 @@ def fetch_btc_data():
         time.sleep(10)
     print("Error: Failed to fetch BTC data after 3 attempts")
     return None
-
-# Create Dune table via API (only runs once)
-def create_dune_table():
-    api_key = os.environ.get('DUNE_API_KEY')
-    if not api_key:
-        print("Error: DUNE_API_KEY environment variable not found")
-        return False
-    
-    namespace = 'rekahbeee'
-    table_name = 'fng_btc_data_api'  # New table name, different from CSV uploaded table
-    
-    # Define table schema
-    schema = [
-        {"name": "timestamp", "type": "varchar"},
-        {"name": "value", "type": "integer"},
-        {"name": "value_classification", "type": "varchar"},
-        {"name": "btcusd", "type": "double"}
-    ]
-    
-    create_url = 'https://api.dune.com/api/v1/table/create'
-    headers = {
-        'X-Dune-API-Key': api_key,
-        'Content-Type': 'application/json'
-    }
-    
-    payload = {
-        "namespace": namespace,
-        "table_name": table_name,
-        "schema": schema,
-        "description": "Fear and Greed Index with BTC price data (API managed)"
-    }
-    
-    try:
-        response = requests.post(create_url, headers=headers, json=payload, timeout=10)
-        if response.status_code in [200, 201]:  # Accept both 200 (OK) and 201 (Created)
-            print(f"Table created successfully: {namespace}.{table_name}")
-            return True
-        elif response.status_code == 400 and "already exists" in response.text.lower():
-            print(f"Table already exists: {namespace}.{table_name}")
-            return True
-        else:
-            print(f"Table creation error: Status {response.status_code}, Response: {response.text}")
-            return False
-    except requests.RequestException as e:
-        print(f"Table creation failed due to exception: {e}")
-        return False
-
-# Import historical data from CSV (only run once manually)
-def import_historical_data():
-    """
-    This function only needs to run once to import existing CSV historical data 
-    into the new API table. It's recommended to run this manually first, 
-    then comment out this part of the code.
-    """
-    output_file = 'fear_greed_btc_data.csv'
-    if not os.path.exists(output_file):
-        print(f"Historical data file not found: {output_file}")
-        return
-    
-    try:
-        historical_df = pd.read_csv(output_file)
-        print(f"Found {len(historical_df)} historical records")
-        
-        # Upload historical data to Dune
-        api_key = os.environ.get('DUNE_API_KEY')
-        namespace = 'rekahbeee'
-        table_name = 'fng_btc_data_api'
-        DUNE_API_URL = f'https://api.dune.com/api/v1/table/{namespace}/{table_name}/insert'
-        
-        headers = {
-            'X-Dune-API-Key': api_key,
-            'Content-Type': 'application/x-ndjson'
-        }
-        
-        # Upload historical data in batches (max 1000 records per batch)
-        batch_size = 1000
-        for i in range(0, len(historical_df), batch_size):
-            batch_df = historical_df.iloc[i:i+batch_size].copy()
-            
-            # Convert timestamp to string if it's a datetime object
-            if 'timestamp' in batch_df.columns:
-                if pd.api.types.is_datetime64_any_dtype(batch_df['timestamp']):
-                    batch_df['timestamp'] = pd.to_datetime(batch_df['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
-            
-            # Only keep columns that match our schema
-            schema_columns = ['timestamp', 'value', 'value_classification', 'btcusd']
-            available_columns = [col for col in schema_columns if col in batch_df.columns]
-            batch_df_filtered = batch_df[available_columns]
-            
-            data_records = batch_df_filtered.to_dict('records')
-            
-            # Convert to NDJSON format (one JSON object per line)
-            ndjson_data = '\n'.join([json.dumps(record) for record in data_records])
-            
-            try:
-                response = requests.post(DUNE_API_URL, headers=headers, data=ndjson_data, timeout=30)
-                if response.status_code == 200:
-                    print(f"Batch {i//batch_size + 1} uploaded successfully ({len(batch_df)} records)")
-                else:
-                    print(f"Batch {i//batch_size + 1} upload error: Status {response.status_code}, Response: {response.text}")
-            except requests.RequestException as e:
-                print(f"Batch {i//batch_size + 1} upload failed: {e}")
-            
-            # Avoid API rate limits
-            time.sleep(1)
-            
-    except Exception as e:
-        print(f"Error importing historical data: {e}")
-
-# Check if data already exists in Dune table
-def check_existing_data_in_dune(timestamp_str):
-    """
-    Check if data for a specific date already exists in the Dune table
-    Note: This requires query API implementation, simplified for now
-    """
-    # This can be implemented with query logic, for now returns False to always try inserting
-    return False
 
 # Merge data and upload to Dune
 def update_dune_data():
@@ -178,7 +60,7 @@ def update_dune_data():
         print("Error: No data after merge")
         return
 
-    # Save to local CSV as backup
+    # Read existing CSV to check for duplicates
     output_file = 'fear_greed_btc_data.csv'
     existing_data = []
     if os.path.exists(output_file):
@@ -191,60 +73,40 @@ def update_dune_data():
 
     latest_date = d.index[0].strftime('%Y-%m-%d')
     if latest_date in existing_data:
-        print(f"Data already exists in local CSV, skipping: {latest_date}")
+        print(f"Data already exists, skipping upload: {latest_date}")
         return
 
-    # Append to local CSV
-    d_reset = d.reset_index()
+    # Append to CSV
+    d = d.reset_index()
     try:
-        d_reset.to_csv(output_file, mode='a', header=not os.path.exists(output_file), index=False)
+        d.to_csv(output_file, mode='a', header=not os.path.exists(output_file), index=False)
         print(f"Data appended to {output_file}")
     except Exception as e:
         print(f"Error writing to CSV: {e}")
         return
 
-    # Create/verify Dune table
-    if not create_dune_table():
-        print("Failed to create/verify Dune table")
-        return
-    
-    # Upload to Dune API table
+    # Upload to Dune (append mode)
     api_key = os.environ.get('DUNE_API_KEY')
-    namespace = 'rekahbeee'
-    table_name = 'fng_btc_data_api'  # Use new API table name
-    DUNE_API_URL = f'https://api.dune.com/api/v1/table/{namespace}/{table_name}/insert'
-    
-    headers = {
-        'X-Dune-API-Key': api_key,
-        'Content-Type': 'application/x-ndjson'
-    }
-    
-    # Convert data to newline-delimited JSON format
-    d_reset['timestamp'] = d_reset['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
-    
-    # Only keep columns that match our schema
-    schema_columns = ['timestamp', 'value', 'value_classification', 'btcusd']
-    d_filtered = d_reset[schema_columns]
-    
-    data_records = d_filtered.to_dict('records')
-    
-    # Convert to NDJSON format (one JSON object per line)
-    ndjson_data = '\n'.join([json.dumps(record) for record in data_records])
-    
+    if not api_key:
+        print("Error: DUNE_API_KEY environment variable not found")
+        return
+    DUNE_API_URL = 'https://api.dune.com/api/v1/table/insert'  # 使用 insert 端点追加数据
+    headers = {'X-Dune-API-Key': api_key}
     try:
-        response = requests.post(DUNE_API_URL, headers=headers, data=ndjson_data, timeout=10)
+        csv_data = d.to_csv(index=False)
+        payload = {
+            'table_name': 'rekahbeee.dataset_fng_btc_data',  # 你的完整表名
+            'description': 'Daily FNG Index and BTC Price Trends (updated daily)',
+            'is_private': False,
+            'data': csv_data
+        }
+        response = requests.post(DUNE_API_URL, headers=headers, json=payload, timeout=10)
         if response.status_code == 200:
-            print(f"Data uploaded to Dune API table successfully! Time: {pd.Timestamp.now()}")
+            print(f"Data uploaded to Dune successfully! Time: {pd.Timestamp.now()}")
         else:
             print(f"Upload error: Status {response.status_code}, Response: {response.text}")
     except requests.RequestException as e:
         print(f"Upload failed due to exception: {e}")
 
 if __name__ == "__main__":
-    # Check if historical data import is needed
-    if os.environ.get('IMPORT_HISTORICAL') == 'true':
-        print("Importing historical data...")
-        import_historical_data()
-    
-    # Daily update
     update_dune_data()
