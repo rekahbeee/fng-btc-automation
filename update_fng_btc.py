@@ -32,7 +32,7 @@ def fetch_btc_data():
         try:
             r = requests.get('https://api.coingecko.com/api/v3/coins/bitcoin/market_chart?vs_currency=usd&days=1&interval=daily', timeout=10)
             if r.status_code == 200:
-                btc_df = pd.DataFrame(r.json()['prices'], columns=['timestamp', 'BTCUSD'])
+                btc_df = pd.DataFrame(r.json()['prices'], columns=['timestamp', 'btcusd'])
                 btc_df['timestamp'] = pd.to_datetime(btc_df['timestamp'], unit='ms')
                 btc_df.set_index('timestamp', inplace=True)
                 return btc_df.iloc[0:1]  # Return only the latest day
@@ -59,7 +59,7 @@ def create_dune_table():
         {"name": "timestamp", "type": "varchar"},
         {"name": "value", "type": "integer"},
         {"name": "value_classification", "type": "varchar"},
-        {"name": "BTCUSD", "type": "double"}
+        {"name": "btcusd", "type": "double"}
     ]
     
     create_url = 'https://api.dune.com/api/v1/table/create'
