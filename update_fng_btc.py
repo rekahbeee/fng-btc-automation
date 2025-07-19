@@ -120,7 +120,13 @@ def import_historical_data():
         # Upload historical data in batches (max 1000 records per batch)
         batch_size = 1000
         for i in range(0, len(historical_df), batch_size):
-            batch_df = historical_df.iloc[i:i+batch_size]
+            batch_df = historical_df.iloc[i:i+batch_size].copy()
+            
+            # Convert timestamp to string if it's a datetime object
+            if 'timestamp' in batch_df.columns:
+                if pd.api.types.is_datetime64_any_dtype(batch_df['timestamp']):
+                    batch_df['timestamp'] = pd.to_datetime(batch_df['timestamp']).dt.strftime('%Y-%m-%d %H:%M:%S')
+            
             data_records = batch_df.to_dict('records')
             payload = {"data": data_records}
             
@@ -206,6 +212,7 @@ def update_dune_data():
     }
     
     # Convert data to JSON format
+    d_reset['timestamp'] = d_reset['timestamp'].dt.strftime('%Y-%m-%d %H:%M:%S')
     data_records = d_reset.to_dict('records')
     payload = {"data": data_records}
     
