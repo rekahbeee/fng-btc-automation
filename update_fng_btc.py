@@ -90,17 +90,16 @@ def update_dune_data():
     if not api_key:
         print("Error: DUNE_API_KEY environment variable not found")
         return
-    DUNE_API_URL = 'https://api.dune.com/api/v1/table/insert'
-    headers = {'X-Dune-API-Key': api_key}
+    namespace = 'rekahbeee'
+    table_name = 'dataset_fng_btc_data' 
+    DUNE_API_URL = f'https://api.dune.com/api/v1/table/{namespace}/{table_name}/insert'
+    headers = {
+        'X-Dune-API-Key': api_key,
+        'Content-Type': 'text/csv' 
+    }
     try:
         csv_data = d.to_csv(index=False)
-        payload = {
-            'table_name': 'rekahbeee.dataset_fng_btc_data',
-            'description': 'Daily FNG Index and BTC Price Trends (updated daily)',
-            'is_private': False,
-            'data': csv_data
-        }
-        response = requests.post(DUNE_API_URL, headers=headers, json=payload, timeout=10)
+        response = requests.post(DUNE_API_URL, headers=headers, data=csv_data, timeout=10)
         if response.status_code == 200:
             print(f"Data uploaded to Dune successfully! Time: {pd.Timestamp.now()}")
         else:
