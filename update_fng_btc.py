@@ -90,12 +90,14 @@ def update_dune_data():
     if not api_key:
         print("Error: DUNE_API_KEY environment variable not found")
         return
-    DUNE_API_URL = 'https://api.dune.com/api/v1/table/insert'  # 使用 insert 端点追加数据
+    namespace = 'rekahbeee'
+    table_name = 'dataset_fng_btc_data'  # 假设的表名，与现有表匹配
+    DUNE_API_URL = 'https://api.dune.com/api/v1/table/insert'  # 标准插入端点
     headers = {'X-Dune-API-Key': api_key}
     try:
         csv_data = d.to_csv(index=False)
         payload = {
-            'table_name': 'rekahbeee.dataset_fng_btc_data',  # 你的完整表名
+            'table_name': f'{namespace}.{table_name}',  # 完整表名，例如 rekahbeee.dataset_fng_btc_data
             'description': 'Daily FNG Index and BTC Price Trends (updated daily)',
             'is_private': False,
             'data': csv_data
