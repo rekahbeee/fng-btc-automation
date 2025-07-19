@@ -95,7 +95,7 @@ def update_dune_data():
     try:
         csv_data = d.to_csv(index=False)
         payload = {
-            'table_name': 'fng_btc_data',
+            'table_name': 'dune.rekahbeee.dataset_fng_btc_data',
             'description': 'Daily FNG Index and BTC Price Trends (updated daily)',
             'is_private': False,
             'data': csv_data
